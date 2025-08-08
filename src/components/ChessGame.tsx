@@ -515,12 +515,6 @@ export default function ChessGame() {
               <span>Lichess:</span>
               <b>{userMovesIndex ? `${userMovesIndex.size} позиций` : 'не загружено'}</b>
             </li>
-            {userMovesIndex && lichessLoadedGames > 0 && (
-              <li>
-                <span>Партий:</span>
-                <b>{lichessLoadedGames}</b>
-              </li>
-            )}
             {userMovesIndex && (
               <LichessPositionStats fen={fen} index={userMovesIndex} />
             )}
@@ -578,6 +572,7 @@ function LichessPositionStats({ fen, index }: { fen: string; index: MoveIndex })
     <li style={{ alignItems: 'flex-start' }}>
       <span className="section-title" style={{ display: 'block', marginBottom: 6 }}>Результат поз.:</span>
       <div style={{ display: 'grid', gap: 2, justifyItems: 'end' }}>
+        <div>партий <b>{total}</b></div>
         <div>побед <b>{w}%</b></div>
         <div>ничьих <b>{d}%</b></div>
         <div>поражений <b>{l}%</b></div>

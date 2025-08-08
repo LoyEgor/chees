@@ -2,6 +2,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import type { Move, Square } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
+import { MoveIndex } from '../lib/indexer'
+import { fetchAndIndexUserGames, loadIndexFromLocalStorage, saveIndexToLocalStorage } from '../lib/lichess'
 
 type PromotionPiece = 'q' | 'r' | 'b' | 'n'
 
@@ -54,6 +56,11 @@ export default function ChessGame() {
   const [promotionOpen, setPromotionOpen] = useState(false)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
 
+  // Индекс ходов пользователя из Lichess
+  const [userMovesIndex, setUserMovesIndex] = useState<MoveIndex | null>(null)
+  const [isLoadingLichess, setIsLoadingLichess] = useState(false)
+  const [lichessLoadedGames, setLichessLoadedGames] = useState<number>(0)
+
   const turnColor: 'white' | 'black' = chessRef.current.turn() === 'w' ? 'white' : 'black'
   const status = getGameStatus(chessRef.current)
 
@@ -95,10 +102,44 @@ export default function ChessGame() {
       }
     }
 
+    // Подсветка ходов из пользовательских игр (по целевым клеткам, интенсивность = частоте)
+    if (userMovesIndex) {
+      const bucket = userMovesIndex.getBucket(fen)
+      if (bucket && bucket.total > 0) {
+        const max = Array.from(bucket.toSquareCounts.values()).reduce((a, b) => Math.max(a, b), 0)
+        for (const [to, count] of bucket.toSquareCounts) {
+          const intensity = Math.max(0.2, Math.min(0.9, count / max))
+          const color = `rgba(0, 200, 255, ${intensity.toFixed(3)})`
+          styles[to] = {
+            ...(styles[to] || {}),
+            boxShadow: `inset 0 0 0 4px ${color}`
+          }
+        }
+      }
+    }
+
     return styles
-  }, [hoverSquare, lastMove, legalTargets, selectedSquare])
+  }, [hoverSquare, lastMove, legalTargets, selectedSquare, userMovesIndex, fen])
 
   const squareStyles = useMemo(() => buildSquareStyles(), [buildSquareStyles])
+
+  // Генерация стрелок по ходам пользователя для текущей позиции
+  const lichessArrows = useMemo(() => {
+    if (!userMovesIndex) return [] as any[]
+    const bucket = userMovesIndex.getBucket(fen)
+    if (!bucket || bucket.total === 0) return [] as any[]
+    const top = Array.from(bucket.moveCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+    const max = top.length ? top[0][1] : 1
+    return top.map(([k, c]) => {
+      const from = k.slice(0, 2)
+      const to = k.slice(2, 4)
+      const t = Math.max(0.35, Math.min(1, c / max))
+      const col = `rgba(0, 200, 255, ${t.toFixed(3)})`
+      return { startSquare: from, endSquare: to, color: col }
+    }) as any[]
+  }, [userMovesIndex, fen])
 
   const setPositionFromGame = useCallback(() => {
     setFen(chessRef.current.fen())
@@ -221,6 +262,28 @@ export default function ChessGame() {
     }
   }, [])
 
+  const loadLichess = useCallback(async () => {
+    if (isLoadingLichess) return
+    setIsLoadingLichess(true)
+    try {
+      const cached = loadIndexFromLocalStorage('lichess:spritescarbs:index')
+      if (cached) {
+        setUserMovesIndex(cached)
+        setLichessLoadedGames(0)
+        return
+      }
+      const { index, totalGames } = await fetchAndIndexUserGames({ username: 'spritescarbs' })
+      setUserMovesIndex(index)
+      setLichessLoadedGames(totalGames)
+      saveIndexToLocalStorage('lichess:spritescarbs:index', index)
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(e)
+    } finally {
+      setIsLoadingLichess(false)
+    }
+  }, [isLoadingLichess])
+
   const onMouseOverSquare = useCallback(({ square }: { square: string }) => {
     setHoverSquare(square as Square)
   }, [])
@@ -277,6 +340,7 @@ export default function ChessGame() {
                 overflow: 'hidden'
               },
               allowDrawingArrows: true,
+              arrows: lichessArrows as any,
               onPieceDrop: ({ sourceSquare, targetSquare }) =>
                 onPieceDrop({ sourceSquare, targetSquare }),
               onSquareClick: ({ square }) => onSquareClick({ square }),
@@ -300,6 +364,9 @@ export default function ChessGame() {
           <button className="btn" onClick={copyPGN} disabled={historyVerbose.length === 0}>
             Скопировать PGN
           </button>
+          <button className="btn" onClick={loadLichess} disabled={isLoadingLichess}>
+            {userMovesIndex ? 'Данные Lichess загружены' : isLoadingLichess ? 'Загрузка Lichess…' : 'Загрузить Lichess'}
+          </button>
         </div>
       </div>
 
@@ -319,6 +386,16 @@ export default function ChessGame() {
               <li>
                 <span>Статус:</span>
                 <b>{status.label}</b>
+              </li>
+            )}
+            <li>
+              <span>Lichess:</span>
+              <b>{userMovesIndex ? `${userMovesIndex.size} позиций` : 'не загружено'}</b>
+            </li>
+            {userMovesIndex && lichessLoadedGames > 0 && (
+              <li>
+                <span>Партий:</span>
+                <b>{lichessLoadedGames}</b>
               </li>
             )}
           </ul>

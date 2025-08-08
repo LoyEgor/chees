@@ -58,6 +58,28 @@
   width: 100%;
   aspect-ratio: 1 / 1;
 }
+.board-row {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.evalbar-container {
+  display: flex;
+}
+
+/* Убираем возможные зазоры между рядами за счёт блочной модели дочерних элементов */
+.board-wrapper > div {
+  line-height: 0;
+}
+
+/* Страхуемся от межстрочного интервала внутри квадратов (если рендерят как inline) */
+.board-wrapper svg,
+.board-wrapper img {
+  display: block;
+}
+
 
 .controls {
   display: flex;

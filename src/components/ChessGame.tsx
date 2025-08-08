@@ -4,6 +4,7 @@ import type { Move, Square } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { MoveIndex } from '../lib/indexer'
 import { californiaPieces } from '../lib/piecesCalifornia'
+import EvalBar from './EvalBar'
 import {
   fetchAndIndexUserGames,
   loadIndexFromLocalStorage,
@@ -385,45 +386,59 @@ export default function ChessGame() {
           </div>
         </div>
 
-        <div className="board-wrapper">
-          <Chessboard
-            options={{
-              id: 'main-board',
-              position: fen,
-              boardOrientation: orientation,
-              pieces: californiaPieces,
-              showNotation: true,
-              animationDurationInMs: 250,
-              showAnimations: true,
-              squareStyles: squareStyles,
-              lightSquareStyle: { backgroundColor: '#FFFEDD' },
-              darkSquareStyle: { backgroundColor: '#86A665' },
-              dropSquareStyle: {
-                boxShadow: 'inset 0 0 0 4px rgba(0, 200, 0, 0.65)'
+        <div className="board-row">
+          <div className="evalbar-container">
+            <EvalBar fen={fen} />
+          </div>
+          <div className="board-wrapper">
+            <Chessboard
+              options={{
+                id: 'main-board',
+                position: fen,
+                boardOrientation: orientation,
+                pieces: californiaPieces,
+                showNotation: true,
+                animationDurationInMs: 250,
+                showAnimations: true,
+                squareStyles: squareStyles,
+                lightSquareStyle: { backgroundColor: '#FFFEDD' },
+                darkSquareStyle: { backgroundColor: '#86A665' },
+                dropSquareStyle: {
+                  boxShadow: 'inset 0 0 0 4px rgba(0, 200, 0, 0.65)'
+                },
+                draggingPieceGhostStyle: {
+                  filter: 'drop-shadow(0 12px 20px rgba(0,0,0,.35))'
+                },
+                boardStyle: {
+                  boxShadow:
+                    '0 10px 30px rgba(0,0,0,.25), 0 6px 12px rgba(0,0,0,.15)',
+                  borderRadius: 16,
+                  overflow: 'hidden'
+                },
+                allowDrawingArrows: true,
+                arrows: lichessArrows as any,
+                onPieceDrop: ({ sourceSquare, targetSquare }) =>
+                  onPieceDrop({ sourceSquare, targetSquare }),
+                onSquareClick: ({ square }) => onSquareClick({ square }),
+                onPieceClick: ({ square }) => {
+                  if (!square) return
+                  onSquareClick({ square })
+                },
+              onPieceDrag: ({ isSparePiece, square }) => {
+                if (isSparePiece || !square) return
+                if (status.isTerminal) return
+                const sq = square as Square
+                if (selectedSquare !== sq) {
+                  setSelectedSquare(sq)
+                  computeLegalTargets(sq)
+                }
               },
-              draggingPieceGhostStyle: {
-                filter: 'drop-shadow(0 12px 20px rgba(0,0,0,.35))'
-              },
-              boardStyle: {
-                boxShadow:
-                  '0 10px 30px rgba(0,0,0,.25), 0 6px 12px rgba(0,0,0,.15)',
-                borderRadius: 16,
-                overflow: 'hidden'
-              },
-              allowDrawingArrows: true,
-              arrows: lichessArrows as any,
-              onPieceDrop: ({ sourceSquare, targetSquare }) =>
-                onPieceDrop({ sourceSquare, targetSquare }),
-              onSquareClick: ({ square }) => onSquareClick({ square }),
-              onPieceClick: ({ square }) => {
-                if (!square) return
-                onSquareClick({ square })
-              },
-              onMouseOverSquare: ({ square }) => onMouseOverSquare({ square }),
-              onMouseOutSquare: () => onMouseOutSquare(),
-              canDragPiece: ({ square }) => canDragPiece({ square })
-            }}
-          />
+                onMouseOverSquare: ({ square }) => onMouseOverSquare({ square }),
+                onMouseOutSquare: () => onMouseOutSquare(),
+                canDragPiece: ({ square }) => canDragPiece({ square })
+              }}
+            />
+          </div>
         </div>
 
         <div className="controls">

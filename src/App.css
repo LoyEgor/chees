@@ -1,0 +1,167 @@
+/* Layout */
+.app-root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chess-app {
+  display: grid;
+  grid-template-columns: minmax(320px, 640px) 320px;
+  gap: 24px;
+  width: min(1100px, 96vw);
+  padding: 24px;
+}
+
+@media (max-width: 980px) {
+  .chess-app {
+    grid-template-columns: 1fr;
+  }
+}
+
+.board-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.status .badge {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.status .badge-terminal {
+  background: rgba(255, 80, 80, 0.2);
+  border-color: rgba(255, 120, 120, 0.35);
+}
+
+.board-wrapper {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn {
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+  padding: 10px 14px;
+  color: inherit;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+}
+
+.side-panel {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.side-section + .side-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(255,255,255,0.12);
+}
+
+.section-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.status-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.status-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.moves-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.move-num {
+  opacity: 0.6;
+  margin-right: 6px;
+}
+
+/* Promotion dialog */
+.promotion-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.promotion-dialog {
+  background: rgba(20,20,20,.95);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 280px;
+  display: grid;
+  gap: 12px;
+}
+
+.dialog-title {
+  font-weight: 700;
+}
+
+.promotion-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.promo-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 6px;
+}

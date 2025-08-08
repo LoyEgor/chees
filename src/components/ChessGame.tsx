@@ -1,0 +1,408 @@
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { Chess } from 'chess.js'
+import type { Move, Square } from 'chess.js'
+import { Chessboard } from 'react-chessboard'
+
+type PromotionPiece = 'q' | 'r' | 'b' | 'n'
+
+type LastMove = {
+  from: Square
+  to: Square
+}
+
+type PendingMove = {
+  from: Square
+  to: Square
+}
+
+function getGameStatus(chess: Chess): {
+  label: string
+  isTerminal: boolean
+} {
+  if (chess.isCheckmate()) {
+    return { label: 'Мат', isTerminal: true }
+  }
+  if (chess.isStalemate()) {
+    return { label: 'Пат', isTerminal: true }
+  }
+  if (chess.isDraw()) {
+    // Включает 50 ходов, трёхкратное повторение, недостаток материала
+    return { label: 'Ничья', isTerminal: true }
+  }
+  if (chess.isCheck()) {
+    return { label: 'Шах', isTerminal: false }
+  }
+  return { label: '', isTerminal: false }
+}
+
+function useForceRerender(): () => void {
+  const [, setTick] = useState(0)
+  return useCallback(() => setTick((v) => v + 1), [])
+}
+
+export default function ChessGame() {
+  const chessRef = useRef<Chess>(new Chess())
+  const forceRerender = useForceRerender()
+
+  const [fen, setFen] = useState<string>(() => chessRef.current.fen())
+  const [orientation, setOrientation] = useState<'white' | 'black'>('white')
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null)
+  const [hoverSquare, setHoverSquare] = useState<Square | null>(null)
+  const [legalTargets, setLegalTargets] = useState<Square[]>([])
+  const [lastMove, setLastMove] = useState<LastMove | null>(null)
+
+  const [promotionOpen, setPromotionOpen] = useState(false)
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+
+  const turnColor: 'white' | 'black' = chessRef.current.turn() === 'w' ? 'white' : 'black'
+  const status = getGameStatus(chessRef.current)
+
+  const historyVerbose = useMemo(() => chessRef.current.history({ verbose: true }) as Move[], [fen])
+
+  const buildSquareStyles = useCallback((): Record<string, React.CSSProperties> => {
+    const styles: Record<string, React.CSSProperties> = {}
+
+    // Подсветка последнего хода
+    if (lastMove) {
+      styles[lastMove.from] = {
+        boxShadow: 'inset 0 0 0 3px rgba(255, 213, 0, 0.85)'
+      }
+      styles[lastMove.to] = {
+        boxShadow: 'inset 0 0 0 3px rgba(255, 213, 0, 0.85)'
+      }
+    }
+
+    // Подсветка выбранной клетки
+    if (selectedSquare) {
+      styles[selectedSquare] = {
+        boxShadow: 'inset 0 0 0 3px rgba(0, 132, 255, 0.85)'
+      }
+    }
+
+    // Подсветка наведения мыши
+    if (hoverSquare) {
+      styles[hoverSquare] = {
+        boxShadow: 'inset 0 0 0 3px rgba(100, 100, 255, 0.6)'
+      }
+    }
+
+    // Подсветка доступных ходов
+    for (const target of legalTargets) {
+      styles[target] = {
+        background:
+          'radial-gradient(circle, rgba(20, 85, 30, 0.55) 20%, rgba(0, 0, 0, 0) 21%)',
+        backdropFilter: 'saturate(120%)'
+      }
+    }
+
+    return styles
+  }, [hoverSquare, lastMove, legalTargets, selectedSquare])
+
+  const squareStyles = useMemo(() => buildSquareStyles(), [buildSquareStyles])
+
+  const setPositionFromGame = useCallback(() => {
+    setFen(chessRef.current.fen())
+    forceRerender()
+  }, [forceRerender])
+
+  const computeLegalTargets = useCallback((square: Square) => {
+    const moves = chessRef.current.moves({ square, verbose: true }) as Move[]
+    const targets = moves.map((m) => m.to as Square)
+    setLegalTargets(targets)
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelectedSquare(null)
+    setLegalTargets([])
+  }, [])
+
+  const onSquareClick = useCallback(({ square }: { square: string }) => {
+    if (status.isTerminal) return
+    const sq = square as Square
+    const piece = chessRef.current.get(sq)
+
+    if (selectedSquare && legalTargets.includes(sq)) {
+      // Попытка сделать ход кликом
+      const candidates = chessRef.current.moves({ square: selectedSquare, verbose: true }) as Move[]
+      const candidate = candidates.find((m) => m.to === sq)
+      if (!candidate) return
+      if (candidate.promotion) {
+        setPendingMove({ from: selectedSquare, to: sq })
+        setPromotionOpen(true)
+        return
+      }
+      chessRef.current.move({ from: selectedSquare, to: sq })
+      setLastMove({ from: selectedSquare, to: sq })
+      clearSelection()
+      setPositionFromGame()
+      return
+    }
+
+    // Перевыбор или выбор своей фигуры
+    if (piece && (piece.color === 'w' ? 'white' : 'black') === turnColor) {
+      setSelectedSquare(sq)
+      computeLegalTargets(sq)
+    } else {
+      clearSelection()
+    }
+  }, [clearSelection, computeLegalTargets, legalTargets, selectedSquare, setPositionFromGame, status.isTerminal, turnColor])
+
+  const onPieceDrop = useCallback(({
+    sourceSquare,
+    targetSquare
+  }: {
+    sourceSquare: string
+    targetSquare: string | null
+  }): boolean => {
+    if (status.isTerminal) return false
+    if (!targetSquare) return false
+    const from = sourceSquare as Square
+    const to = targetSquare as Square
+    const candidates = chessRef.current.moves({ square: from, verbose: true }) as Move[]
+    const candidate = candidates.find((m) => m.to === to)
+    if (!candidate) return false
+
+    if (candidate.promotion) {
+      setPendingMove({ from, to })
+      setPromotionOpen(true)
+      return false
+    }
+
+    chessRef.current.move({ from, to })
+    setLastMove({ from, to })
+    clearSelection()
+    setPositionFromGame()
+    return true
+  }, [clearSelection, setPositionFromGame, status.isTerminal])
+
+  const handlePromotion = useCallback((piece: PromotionPiece) => {
+    if (!pendingMove) return
+    const { from, to } = pendingMove
+    chessRef.current.move({ from, to, promotion: piece })
+    setLastMove({ from, to })
+    setPromotionOpen(false)
+    setPendingMove(null)
+    clearSelection()
+    setPositionFromGame()
+  }, [clearSelection, pendingMove, setPositionFromGame])
+
+  const cancelPromotion = useCallback(() => {
+    setPromotionOpen(false)
+    setPendingMove(null)
+  }, [])
+
+  const newGame = useCallback(() => {
+    chessRef.current = new Chess()
+    setLastMove(null)
+    clearSelection()
+    setPositionFromGame()
+  }, [clearSelection, setPositionFromGame])
+
+  const undoMove = useCallback(() => {
+    const undone = chessRef.current.undo()
+    if (undone) {
+      setLastMove(null)
+      clearSelection()
+      setPositionFromGame()
+    }
+  }, [clearSelection, setPositionFromGame])
+
+  const flipBoard = useCallback(() => {
+    setOrientation((o) => (o === 'white' ? 'black' : 'white'))
+  }, [])
+
+  const copyPGN = useCallback(async () => {
+    const pgn = chessRef.current.pgn({ newline: '\n' })
+    try {
+      await navigator.clipboard.writeText(pgn)
+      // no-op toast for now
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const onMouseOverSquare = useCallback(({ square }: { square: string }) => {
+    setHoverSquare(square as Square)
+  }, [])
+
+  const onMouseOutSquare = useCallback(() => {
+    setHoverSquare(null)
+  }, [])
+
+  const canDragPiece = useCallback(({ square }: { square: string | null }) => {
+    if (!square) return false
+    if (status.isTerminal) return false
+    const sq = square as Square
+    const piece = chessRef.current.get(sq)
+    if (!piece) return false
+    const color = piece.color === 'w' ? 'white' : 'black'
+    return color === turnColor
+  }, [status.isTerminal, turnColor])
+
+  const isWhiteTurn = turnColor === 'white'
+  const turnLabel = isWhiteTurn ? 'Ход белых' : 'Ход чёрных'
+
+  return (
+    <div className="chess-app">
+      <div className="board-panel">
+        <div className="panel-header">
+          <div className="title">Шахматы</div>
+          <div className="status">
+            <span className={status.isTerminal ? 'badge badge-terminal' : 'badge'}>
+              {status.label || turnLabel}
+            </span>
+          </div>
+        </div>
+
+        <div className="board-wrapper">
+          <Chessboard
+            options={{
+              id: 'main-board',
+              position: fen,
+              boardOrientation: orientation,
+              showNotation: true,
+              animationDurationInMs: 250,
+              showAnimations: true,
+              squareStyles: squareStyles,
+              dropSquareStyle: {
+                boxShadow: 'inset 0 0 0 4px rgba(0, 200, 0, 0.65)'
+              },
+              draggingPieceGhostStyle: {
+                filter: 'drop-shadow(0 12px 20px rgba(0,0,0,.35))'
+              },
+              boardStyle: {
+                boxShadow:
+                  '0 10px 30px rgba(0,0,0,.25), 0 6px 12px rgba(0,0,0,.15)',
+                borderRadius: 16,
+                overflow: 'hidden'
+              },
+              allowDrawingArrows: true,
+              onPieceDrop: ({ sourceSquare, targetSquare }) =>
+                onPieceDrop({ sourceSquare, targetSquare }),
+              onSquareClick: ({ square }) => onSquareClick({ square }),
+              onPieceClick: ({ square }) => {
+                if (!square) return
+                onSquareClick({ square })
+              },
+              onMouseOverSquare: ({ square }) => onMouseOverSquare({ square }),
+              onMouseOutSquare: () => onMouseOutSquare(),
+              canDragPiece: ({ square }) => canDragPiece({ square })
+            }}
+          />
+        </div>
+
+        <div className="controls">
+          <button className="btn" onClick={newGame}>Новая партия</button>
+          <button className="btn" onClick={undoMove} disabled={historyVerbose.length === 0}>
+            Отменить ход
+          </button>
+          <button className="btn" onClick={flipBoard}>Перевернуть доску</button>
+          <button className="btn" onClick={copyPGN} disabled={historyVerbose.length === 0}>
+            Скопировать PGN
+          </button>
+        </div>
+      </div>
+
+      <aside className="side-panel">
+        <div className="side-section">
+          <div className="section-title">Состояние</div>
+          <ul className="status-list">
+            <li>
+              <span>Ход:</span>
+              <b>{turnLabel}</b>
+            </li>
+            <li>
+              <span>Игра окончена:</span>
+              <b>{status.isTerminal ? 'Да' : 'Нет'}</b>
+            </li>
+            {status.label && (
+              <li>
+                <span>Статус:</span>
+                <b>{status.label}</b>
+              </li>
+            )}
+          </ul>
+        </div>
+
+        <div className="side-section">
+          <div className="section-title">Ходы</div>
+          <ol className="moves-list">
+            {historyVerbose.map((m, idx) => (
+              <li key={`${m.san}-${idx}`}>
+                <span className="move-num">{Math.floor(idx / 2) + 1}.</span>
+                <span className="move-san">{m.san}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </aside>
+
+      {promotionOpen && pendingMove && (
+        <div className="promotion-backdrop" onClick={cancelPromotion}>
+          <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-title">Выберите фигуру для превращения</div>
+            <div className="promotion-grid">
+              {(['q', 'r', 'b', 'n'] as PromotionPiece[]).map((p) => (
+                <button
+                  key={p}
+                  className="promo-btn"
+                  onClick={() => handlePromotion(p)}
+                  aria-label={`Promote to ${p}`}
+                >
+                  {renderPromotionIcon(p, turnColor)}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-secondary" onClick={cancelPromotion}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function renderPromotionIcon(piece: PromotionPiece, turn: 'white' | 'black') {
+  const fill = turn === 'white' ? '#f2f2f2' : '#1f1f1f'
+  const stroke = turn === 'white' ? '#333' : '#ddd'
+  const size = 48
+  // Простые SVG-иконки, чтобы не зависеть от ассетов
+  switch (piece) {
+    case 'q':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64">
+          <circle cx="12" cy="18" r="5" fill={fill} stroke={stroke} />
+          <circle cx="32" cy="12" r="5" fill={fill} stroke={stroke} />
+          <circle cx="52" cy="18" r="5" fill={fill} stroke={stroke} />
+          <path d="M12 24 L20 44 L44 44 L52 24 L32 20 Z" fill={fill} stroke={stroke} />
+          <rect x="18" y="44" width="28" height="6" rx="2" fill={fill} stroke={stroke} />
+        </svg>
+      )
+    case 'r':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64">
+          <rect x="16" y="14" width="32" height="10" fill={fill} stroke={stroke} />
+          <rect x="20" y="24" width="24" height="20" fill={fill} stroke={stroke} />
+          <rect x="16" y="44" width="32" height="6" rx="2" fill={fill} stroke={stroke} />
+        </svg>
+      )
+    case 'b':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64">
+          <circle cx="32" cy="16" r="6" fill={fill} stroke={stroke} />
+          <path d="M32 22 C18 30, 18 44, 32 44 C46 44, 46 30, 32 22 Z" fill={fill} stroke={stroke} />
+          <rect x="20" y="44" width="24" height="6" rx="2" fill={fill} stroke={stroke} />
+        </svg>
+      )
+    case 'n':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64">
+          <path d="M16 44 L36 44 L44 36 L44 20 L36 20 L24 32 L24 22 L16 22 Z" fill={fill} stroke={stroke} />
+          <rect x="16" y="44" width="32" height="6" rx="2" fill={fill} stroke={stroke} />
+        </svg>
+      )
+  }
+}
+
+

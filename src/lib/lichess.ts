@@ -3,7 +3,7 @@
 
 import type { SerializedIndex } from './indexer'
 import { MoveIndex } from './indexer'
-import { Chess } from 'chess.js'
+// import { Chess } from 'chess.js'
 
 export type FetchGamesOptions = {
   username: string
@@ -25,15 +25,7 @@ function parseNdjson(text: string): string[] {
     .filter(Boolean)
 }
 
-function pgnToSanMoves(pgn: string): string[] {
-  const chess = new Chess()
-  try {
-    chess.loadPgn(pgn, { strict: false })
-  } catch {
-    return []
-  }
-  return chess.history()
-}
+// (было pgnToSanMoves) — больше не используется; индексация идёт через ingestGamePgn
 
 export async function fetchAndIndexUserGames(options: FetchGamesOptions): Promise<LoadResult> {
   const { username, max, since, until, perfType } = options
@@ -68,8 +60,8 @@ export async function fetchAndIndexUserGames(options: FetchGamesOptions): Promis
       const obj = JSON.parse(line) as any
       if (!obj || !obj.pgn) continue
       totalGames += 1
-      const sanMoves = pgnToSanMoves(obj.pgn)
-      index.ingestSanMoves(sanMoves)
+      // Учитываем результат относительно username и индексацию позиций
+      index.ingestGamePgn(username, obj.pgn)
     } catch {
       // ignore
     }
@@ -91,10 +83,59 @@ export function loadIndexFromLocalStorage(key: string): MoveIndex | null {
   try {
     const raw = localStorage.getItem(key)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as SerializedIndex
-    return MoveIndex.fromSerialized(parsed)
+    const parsed = JSON.parse(raw) as unknown as Record<string, any>
+    // Проверяем схему: требуется наличие полей разбиения по сторонам и цветам
+    const firstBucket = parsed && typeof parsed === 'object' ? (Object.values(parsed)[0] as any) : null
+    const hasSideSplit = !!firstBucket && (typeof firstBucket === 'object') && ('ut' in firstBucket) && ('om' in firstBucket)
+    const hasColorSplit = !!firstBucket && (typeof firstBucket === 'object') && ('uwt' in firstBucket) && ('obm' in firstBucket)
+    if (!hasSideSplit || !hasColorSplit) {
+      // Старый кэш — игнорируем, чтобы перекачать и пересчитать
+      return null
+    }
+    return MoveIndex.fromSerialized(parsed as SerializedIndex)
   } catch {
     return null
+  }
+}
+
+// ---------- История ников ----------
+
+const HISTORY_KEY = 'lichess:userHistory'
+
+export function getUserHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as string[]
+    if (!Array.isArray(arr)) return []
+    return arr.filter((s) => typeof s === 'string')
+  } catch {
+    return []
+  }
+}
+
+export function addUserToHistory(username: string): void {
+  const u = username.trim()
+  if (!u) return
+  const current = getUserHistory()
+  const existingIndex = current.findIndex((x) => x.toLowerCase() === u.toLowerCase())
+  if (existingIndex !== -1) current.splice(existingIndex, 1)
+  current.unshift(u)
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(current.slice(0, 20)))
+  } catch {
+    // ignore
+  }
+}
+
+export function removeUserFromHistory(username: string): void {
+  const u = username.trim()
+  const current = getUserHistory()
+  const next = current.filter((x) => x.toLowerCase() !== u.toLowerCase())
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
+  } catch {
+    // ignore
   }
 }
 

@@ -3,7 +3,15 @@ import { Chess } from 'chess.js'
 import type { Move, Square } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { MoveIndex } from '../lib/indexer'
-import { fetchAndIndexUserGames, loadIndexFromLocalStorage, saveIndexToLocalStorage } from '../lib/lichess'
+import { californiaPieces } from '../lib/piecesCalifornia'
+import {
+  fetchAndIndexUserGames,
+  loadIndexFromLocalStorage,
+  saveIndexToLocalStorage,
+  addUserToHistory,
+  getUserHistory,
+  removeUserFromHistory
+} from '../lib/lichess'
 
 type PromotionPiece = 'q' | 'r' | 'b' | 'n'
 
@@ -60,6 +68,8 @@ export default function ChessGame() {
   const [userMovesIndex, setUserMovesIndex] = useState<MoveIndex | null>(null)
   const [isLoadingLichess, setIsLoadingLichess] = useState(false)
   const [lichessLoadedGames, setLichessLoadedGames] = useState<number>(0)
+  const [lichessUsername, setLichessUsername] = useState<string>('spritescarbs')
+  const [userHistory, setUserHistory] = useState<string[]>(() => getUserHistory())
 
   const turnColor: 'white' | 'black' = chessRef.current.turn() === 'w' ? 'white' : 'black'
   const status = getGameStatus(chessRef.current)
@@ -102,17 +112,35 @@ export default function ChessGame() {
       }
     }
 
-    // Подсветка ходов из пользовательских игр (по целевым клеткам, интенсивность = частоте)
+    // Подсветка: мои ходы для цвета снизу и ходы соперника для цвета сверху
     if (userMovesIndex) {
       const bucket = userMovesIndex.getBucket(fen)
-      if (bucket && bucket.total > 0) {
-        const max = Array.from(bucket.toSquareCounts.values()).reduce((a, b) => Math.max(a, b), 0)
-        for (const [to, count] of bucket.toSquareCounts) {
-          const intensity = Math.max(0.2, Math.min(0.9, count / max))
-          const color = `rgba(0, 200, 255, ${intensity.toFixed(3)})`
-          styles[to] = {
-            ...(styles[to] || {}),
-            boxShadow: `inset 0 0 0 4px ${color}`
+      if (bucket) {
+        const bottomIsWhite = orientation === 'white'
+        const myMap = bottomIsWhite ? bucket.userWhiteToSquareCounts : bucket.userBlackToSquareCounts
+        const oppMap = bottomIsWhite ? bucket.oppBlackToSquareCounts : bucket.oppWhiteToSquareCounts
+        if (myMap && myMap.size > 0) {
+          const max = Array.from(myMap.values()).reduce((a, b) => Math.max(a, b), 0)
+          for (const [to, count] of myMap) {
+            const intensity = Math.max(0.2, Math.min(0.9, count / max))
+            const color = `rgba(0, 200, 255, ${intensity.toFixed(3)})` // мои: голубой
+            styles[to] = {
+              ...(styles[to] || {}),
+              boxShadow: `inset 0 0 0 4px ${color}`
+            }
+          }
+        }
+        if (oppMap && oppMap.size > 0) {
+          const max = Array.from(oppMap.values()).reduce((a, b) => Math.max(a, b), 0)
+          for (const [to, count] of oppMap) {
+            const intensity = Math.max(0.15, Math.min(0.7, count / max))
+            const color = `inset 0 0 0 4px rgba(255, 120, 0, ${intensity.toFixed(3)})` // соперник: оранжевый
+            styles[to] = {
+              ...(styles[to] || {}),
+              boxShadow: styles[to]?.boxShadow
+                ? `${styles[to].boxShadow}, ${color}`
+                : color
+            }
           }
         }
       }
@@ -123,23 +151,37 @@ export default function ChessGame() {
 
   const squareStyles = useMemo(() => buildSquareStyles(), [buildSquareStyles])
 
-  // Генерация стрелок по ходам пользователя для текущей позиции
+  // Стрелки: мои для нижней стороны (голубые) и соперника для верхней (оранжевые)
   const lichessArrows = useMemo(() => {
     if (!userMovesIndex) return [] as any[]
     const bucket = userMovesIndex.getBucket(fen)
-    if (!bucket || bucket.total === 0) return [] as any[]
-    const top = Array.from(bucket.moveCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 12)
-    const max = top.length ? top[0][1] : 1
-    return top.map(([k, c]) => {
-      const from = k.slice(0, 2)
-      const to = k.slice(2, 4)
-      const t = Math.max(0.35, Math.min(1, c / max))
-      const col = `rgba(0, 200, 255, ${t.toFixed(3)})`
-      return { startSquare: from, endSquare: to, color: col }
-    }) as any[]
-  }, [userMovesIndex, fen])
+    if (!bucket) return [] as any[]
+    const bottomIsWhite = orientation === 'white'
+    const myMap = bottomIsWhite ? bucket.userWhiteMoveCounts : bucket.userBlackMoveCounts
+    const oppMap = bottomIsWhite ? bucket.oppBlackMoveCounts : bucket.oppWhiteMoveCounts
+    const arrows: any[] = []
+    if (myMap && myMap.size > 0) {
+      const top = Array.from(myMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10)
+      const max = top.length ? top[0][1] : 1
+      for (const [k, c] of top) {
+        const from = k.slice(0, 2)
+        const to = k.slice(2, 4)
+        const t = Math.max(0.35, Math.min(1, c / max))
+        arrows.push({ startSquare: from, endSquare: to, color: `rgba(0, 200, 255, ${t.toFixed(3)})` })
+      }
+    }
+    if (oppMap && oppMap.size > 0) {
+      const top = Array.from(oppMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10)
+      const max = top.length ? top[0][1] : 1
+      for (const [k, c] of top) {
+        const from = k.slice(0, 2)
+        const to = k.slice(2, 4)
+        const t = Math.max(0.25, Math.min(0.85, c / max))
+        arrows.push({ startSquare: from, endSquare: to, color: `rgba(255, 140, 0, ${t.toFixed(3)})` })
+      }
+    }
+    return arrows
+  }, [userMovesIndex, fen, orientation])
 
   const setPositionFromGame = useCallback(() => {
     setFen(chessRef.current.fen())
@@ -266,23 +308,38 @@ export default function ChessGame() {
     if (isLoadingLichess) return
     setIsLoadingLichess(true)
     try {
-      const cached = loadIndexFromLocalStorage('lichess:spritescarbs:index')
+      const key = `lichess:${lichessUsername}:index`
+      const cached = loadIndexFromLocalStorage(key)
       if (cached) {
         setUserMovesIndex(cached)
         setLichessLoadedGames(0)
+        addUserToHistory(lichessUsername)
+        setUserHistory(getUserHistory())
         return
       }
-      const { index, totalGames } = await fetchAndIndexUserGames({ username: 'spritescarbs' })
+      const { index, totalGames } = await fetchAndIndexUserGames({ username: lichessUsername })
       setUserMovesIndex(index)
       setLichessLoadedGames(totalGames)
-      saveIndexToLocalStorage('lichess:spritescarbs:index', index)
+      saveIndexToLocalStorage(key, index)
+      addUserToHistory(lichessUsername)
+      setUserHistory(getUserHistory())
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error(e)
     } finally {
       setIsLoadingLichess(false)
     }
-  }, [isLoadingLichess])
+  }, [isLoadingLichess, lichessUsername])
+
+  const deleteHistoryUser = useCallback((u: string) => {
+    removeUserFromHistory(u)
+    setUserHistory(getUserHistory())
+  }, [])
+
+  const useHistoryUser = useCallback((u: string) => {
+    setLichessUsername(u)
+    setUserMovesIndex(null)
+  }, [])
 
   const onMouseOverSquare = useCallback(({ square }: { square: string }) => {
     setHoverSquare(square as Square)
@@ -304,6 +361,12 @@ export default function ChessGame() {
 
   const isWhiteTurn = turnColor === 'white'
   const turnLabel = isWhiteTurn ? 'Ход белых' : 'Ход чёрных'
+  const noMatchesForPosition = useMemo(() => {
+    if (!userMovesIndex) return false
+    const bucket = userMovesIndex.getBucket(fen)
+    if (!bucket) return true
+    return (bucket.userTotal + bucket.oppTotal) === 0
+  }, [userMovesIndex, fen])
 
   return (
     <div className="chess-app">
@@ -314,6 +377,11 @@ export default function ChessGame() {
             <span className={status.isTerminal ? 'badge badge-terminal' : 'badge'}>
               {status.label || turnLabel}
             </span>
+            {userMovesIndex && noMatchesForPosition && (
+              <span className="badge" style={{ marginLeft: 8 }}>
+                Нет совпадений среди ваших игр для этой позиции
+              </span>
+            )}
           </div>
         </div>
 
@@ -323,10 +391,13 @@ export default function ChessGame() {
               id: 'main-board',
               position: fen,
               boardOrientation: orientation,
+              pieces: californiaPieces,
               showNotation: true,
               animationDurationInMs: 250,
               showAnimations: true,
               squareStyles: squareStyles,
+              lightSquareStyle: { backgroundColor: '#FFFEDD' },
+              darkSquareStyle: { backgroundColor: '#86A665' },
               dropSquareStyle: {
                 boxShadow: 'inset 0 0 0 4px rgba(0, 200, 0, 0.65)'
               },
@@ -364,9 +435,23 @@ export default function ChessGame() {
           <button className="btn" onClick={copyPGN} disabled={historyVerbose.length === 0}>
             Скопировать PGN
           </button>
-          <button className="btn" onClick={loadLichess} disabled={isLoadingLichess}>
-            {userMovesIndex ? 'Данные Lichess загружены' : isLoadingLichess ? 'Загрузка Lichess…' : 'Загрузить Lichess'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              value={lichessUsername}
+              onChange={(e) => setLichessUsername(e.target.value)}
+              placeholder="Ник на Lichess"
+              style={{
+                padding: '8px 10px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.14)',
+                background: 'rgba(255,255,255,0.04)',
+                color: 'inherit'
+              }}
+            />
+            <button className="btn" onClick={loadLichess} disabled={isLoadingLichess}>
+              {userMovesIndex ? 'Обновить Lichess' : isLoadingLichess ? 'Загрузка…' : 'Загрузить Lichess'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -398,7 +483,30 @@ export default function ChessGame() {
                 <b>{lichessLoadedGames}</b>
               </li>
             )}
+            {userMovesIndex && (
+              <LichessPositionStats fen={fen} index={userMovesIndex} />
+            )}
           </ul>
+        </div>
+
+        <div className="side-section">
+          <div className="section-title">История ников</div>
+          {userHistory.length === 0 ? (
+            <div style={{ opacity: 0.7 }}>Пока пусто</div>
+          ) : (
+            <ul className="status-list">
+              {userHistory.map((u) => (
+                <li key={u}>
+                  <button className="btn" onClick={() => useHistoryUser(u)}>
+                    {u}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => deleteHistoryUser(u)}>
+                    Удалить
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="side-section">
@@ -437,6 +545,22 @@ export default function ChessGame() {
         </div>
       )}
     </div>
+  )
+}
+
+function LichessPositionStats({ fen, index }: { fen: string; index: MoveIndex }) {
+  const { win, loss, draw, total } = index.getResultStats(fen)
+  if (total === 0) return null
+  const w = Math.round((win / total) * 100)
+  const l = Math.round((loss / total) * 100)
+  const d = Math.round((draw / total) * 100)
+  return (
+    <li>
+      <span>Результат поз.:</span>
+      <b>
+        {w}% побед • {d}% ничьих • {l}% поражений
+      </b>
+    </li>
   )
 }
 

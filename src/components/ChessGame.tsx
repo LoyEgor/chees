@@ -305,24 +305,25 @@ export default function ChessGame() {
     }
   }, [])
 
-  const loadLichess = useCallback(async () => {
+  const loadLichess = useCallback(async (user?: string) => {
     if (isLoadingLichess) return
     setIsLoadingLichess(true)
     try {
-      const key = `lichess:${lichessUsername}:index`
+      const uname = (user ?? lichessUsername).trim()
+      const key = `lichess:${uname}:index`
       const cached = loadIndexFromLocalStorage(key)
       if (cached) {
         setUserMovesIndex(cached)
         setLichessLoadedGames(0)
-        addUserToHistory(lichessUsername)
+        addUserToHistory(uname)
         setUserHistory(getUserHistory())
         return
       }
-      const { index, totalGames } = await fetchAndIndexUserGames({ username: lichessUsername })
+      const { index, totalGames } = await fetchAndIndexUserGames({ username: uname })
       setUserMovesIndex(index)
       setLichessLoadedGames(totalGames)
       saveIndexToLocalStorage(key, index)
-      addUserToHistory(lichessUsername)
+      addUserToHistory(uname)
       setUserHistory(getUserHistory())
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -340,7 +341,9 @@ export default function ChessGame() {
   const useHistoryUser = useCallback((u: string) => {
     setLichessUsername(u)
     setUserMovesIndex(null)
-  }, [])
+    // сразу загрузим данные выбранного ника
+    void loadLichess(u)
+  }, [loadLichess])
 
   const onMouseOverSquare = useCallback(({ square }: { square: string }) => {
     setHoverSquare(square as Square)
@@ -450,23 +453,43 @@ export default function ChessGame() {
           <button className="btn" onClick={copyPGN} disabled={historyVerbose.length === 0}>
             Скопировать PGN
           </button>
+        </div>
+
+        <div className="side-section" style={{ marginTop: 8 }}>
+          <div className="section-title">Игроки Lichess</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               value={lichessUsername}
               onChange={(e) => setLichessUsername(e.target.value)}
               placeholder="Ник на Lichess"
               style={{
-                padding: '8px 10px',
+                padding: '10px 14px',
+                flex: '1',
+                fontSize: '1em',
                 borderRadius: 8,
                 border: '1px solid rgba(255,255,255,0.14)',
                 background: 'rgba(255,255,255,0.04)',
                 color: 'inherit'
               }}
             />
-            <button className="btn" onClick={loadLichess} disabled={isLoadingLichess}>
-              {userMovesIndex ? 'Обновить Lichess' : isLoadingLichess ? 'Загрузка…' : 'Загрузить Lichess'}
+            <button className="btn" onClick={() => loadLichess()} disabled={isLoadingLichess}>
+              {userMovesIndex ? 'Обновить' : isLoadingLichess ? 'Загрузка…' : 'Загрузить'}
             </button>
           </div>
+          {userHistory.length > 0 && (
+            <ul className="status-list" style={{ marginTop: 8 }}>
+              {userHistory.map((u) => (
+                <li key={u}>
+                  <button className="btn" onClick={() => useHistoryUser(u)}>
+                    {u}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => deleteHistoryUser(u)}>
+                    Удалить
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -504,25 +527,7 @@ export default function ChessGame() {
           </ul>
         </div>
 
-        <div className="side-section">
-          <div className="section-title">История ников</div>
-          {userHistory.length === 0 ? (
-            <div style={{ opacity: 0.7 }}>Пока пусто</div>
-          ) : (
-            <ul className="status-list">
-              {userHistory.map((u) => (
-                <li key={u}>
-                  <button className="btn" onClick={() => useHistoryUser(u)}>
-                    {u}
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => deleteHistoryUser(u)}>
-                    Удалить
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {/* История ников перенесена в блок "Игроки Lichess" наверху панели */}
 
         <div className="side-section">
           <div className="section-title">Ходы</div>
@@ -570,11 +575,13 @@ function LichessPositionStats({ fen, index }: { fen: string; index: MoveIndex })
   const l = Math.round((loss / total) * 100)
   const d = Math.round((draw / total) * 100)
   return (
-    <li>
-      <span>Результат поз.:</span>
-      <b>
-        {w}% побед • {d}% ничьих • {l}% поражений
-      </b>
+    <li style={{ alignItems: 'flex-start' }}>
+      <span className="section-title" style={{ display: 'block', marginBottom: 6 }}>Результат поз.:</span>
+      <div style={{ display: 'grid', gap: 2, justifyItems: 'end' }}>
+        <div>побед <b>{w}%</b></div>
+        <div>ничьих <b>{d}%</b></div>
+        <div>поражений <b>{l}%</b></div>
+      </div>
     </li>
   )
 }
